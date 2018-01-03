@@ -6,6 +6,11 @@
  * do ANYTHING.  Sun Jan  4 00:18:41 PST 2009 -jsj
  */
 
+/* dcled contains contributions from -
+ * Andy Scheller 
+ * Michael Wensley
+ */
+
 #include <asm/types.h>
 #include <fcntl.h>
 #include <linux/hiddev.h>
@@ -19,12 +24,19 @@
 #include <string.h>
 #include <getopt.h>
 #include <time.h>
+#include <hid.h>
 
 #define VENDOR 0x1d34
 #define PRODUCT 0x0013
 /* heh heh.  ledsx.  thats almost dirty. */
 #define LEDSX 21
 #define LEDSY 7
+#define FONTX 5
+#define FONTY 7
+#define MAXTESTPAT 8
+
+/* a useful typedef */
+typedef char ledfont[256*FONTY];
 
 /* This is the usage that gets sent to the device, from the docs supplied by
  * Alvin Wong. */
@@ -37,13 +49,16 @@ struct ledpkt {
 
 /* This is a basic definition of the led display. 0,0 is the upper left. */
 struct ledscreen {
-	int ledfd;
+	HIDInterface *hid;
+	unsigned char path_in_len;
+	int *path_in;
 	int brightness;
 	int scrolldelay;
 	int scrolldir;
 	int preamble;
 	time_t lastupdate;
 	int led[LEDSX][LEDSY];
+	ledfont *font;
 };
 
 void clearscreen(int mode,struct ledscreen *disp);
@@ -52,16 +67,18 @@ void scrollrndfade(struct ledscreen *disp, int isend, int width);
 void scrollpreamble(int isend, struct ledscreen *disp);
 void staticwarmup(struct ledscreen *disp, int isend, int width);
 void scrollsquiggle(struct ledscreen *disp, int isend, int width);
+void printtime(struct ledscreen *disp,int mode);
 
 int debug = 0;
 int echo = 0;
-char version[] = "1.2";
+int nodev = 0;
+char version[] = "1.4";
 
 /* 
   Copy a font definition into a character pointer.  In this application, fonts
-  are 256x7 bytes.
+  are 256x7 bytes.  256 one byte chars by 7 font rows.
 */
-void initfont1 (char *target) {
+void initfont1 (ledfont *target) {
 	
 	/* This copies the font data into a pre-allocated array, as someday i hope
 	 * to have some other fonts for the display. */
@@ -78,7 +95,7 @@ void initfont1 (char *target) {
 	*/
 
 	 
-	static char font[256][7] = {
+	static char font[256][FONTY] = {
 		{ 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA },
 		{ 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA },
 		{ 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA },
@@ -182,7 +199,11 @@ void initfont1 (char *target) {
 		{ 0x08, 0x08, 0x0E, 0x09, 0x09, 0x0E, 0x00 },
 		{ 0x00, 0x00, 0x06, 0x0D, 0x03, 0x06, 0x00 },
 		{ 0x04, 0x0A, 0x02, 0x07, 0x02, 0x02, 0x00 },
-		{ 0x00, 0x00, 0x0E, 0x09, 0x06, 0x01, 0x0E },
+		/* This is the g converted from the 5x7 font */
+		/*{ 0x00, 0x00, 0x0E, 0x09, 0x06, 0x01, 0x0E },*/
+		/* This one is from Andy Scheller. its better.*/
+		{ 0x00, 0x00, 0x0E, 0x09, 0x0E, 0x08, 0x06 },
+		/* end */
 		{ 0x01, 0x01, 0x07, 0x09, 0x09, 0x09, 0x00 },
 		{ 0x04, 0x00, 0x06, 0x04, 0x04, 0x0E, 0x00 },
 		{ 0x08, 0x00, 0x08, 0x08, 0x08, 0x0A, 0x04 },
@@ -341,41 +362,6 @@ void initfont1 (char *target) {
 
 };
 
-/* this is the routine that sends a packet to the display. */
-void send_report(int fd, int id, char *buf, int n) {
-
-	struct hiddev_usage_ref_multi uref;
-	struct hiddev_report_info rinfo;
-	int i;
-
-	uref.uref.report_type = HID_REPORT_TYPE_OUTPUT;
-	uref.uref.report_id = id;
-	uref.uref.field_index = 0;
-	uref.uref.usage_index = 0;
-	uref.num_values = n;
-
-	for (i = 0; i < n; ++i) {
-		uref.values[i] = buf[i];
-	}
-
-	if (ioctl(fd, HIDIOCSUSAGES, &uref) == -1) {
-		fprintf(stderr,"send report %02x/%d, HIDIOCSUSAGES: %s",
-			id, n, strerror(errno)
-		);
-	}
-
-	rinfo.report_type = HID_REPORT_TYPE_OUTPUT;
-	rinfo.report_id = id;
-	rinfo.num_fields = 1;
-	if (ioctl(fd, HIDIOCSREPORT, &rinfo) == -1) {
-		fprintf(stderr,"send report %02x/%d, HIDIOCSREPORT: %s", 
-			id, n, strerror(errno)
-		);
-	}
-
-	return;
-}
-
 /* This sends a copy of the ledscreen to stdout.  Useful as a debug.  */
 void print_screen (struct ledscreen *sc) {
 
@@ -400,16 +386,17 @@ void print_screen (struct ledscreen *sc) {
  * when you want to update the display.  Seems like the device wants to clear
  * itself after about a second, so you might want to keep calling this to
  * refesh the device.  */
-void send_screen (struct ledscreen *sc) {
+void send_screen (struct ledscreen *disp) {
 	
+	char bigpkt[sizeof(struct ledpkt) * 4];
 	struct ledpkt pkt;
 	int row, col, bytep, bitp;
 
-	if(debug) print_screen(sc);
-	time(&(sc->lastupdate));
+	if(debug) print_screen(disp);
+	time(&(disp->lastupdate));
 	
 	for(row=0;row<LEDSY;row+=2) {
-		pkt.brightness = sc->brightness;
+		pkt.brightness = disp->brightness;
 		pkt.row = row;
 
 		for(bytep=0;bytep<=2;bytep++) {
@@ -421,10 +408,10 @@ void send_screen (struct ledscreen *sc) {
 		bitp=0;
 
 		for(col=0;col<LEDSX;col++) {
-			if (sc->led[col][row] == 1) {
+			if (disp->led[col][row] == 1) {
 				pkt.data1[bytep] &= ~(1<<bitp);
 			}
-			if (sc->led[col][row+1] == 1) {
+			if (disp->led[col][row+1] == 1) {
 				pkt.data2[bytep] &= ~(1<<bitp);
 			}
 			bitp++;
@@ -433,7 +420,10 @@ void send_screen (struct ledscreen *sc) {
 				bytep--;
 			}
 		}
-		send_report(sc->ledfd,0,(char*)&pkt,sizeof(struct ledpkt));
+		memcpy(bigpkt+((row/2)*sizeof(struct ledpkt)), &pkt, sizeof(struct ledpkt));
+	}
+	if (!nodev) {
+		hid_set_output_report(disp->hid, disp->path_in, disp->path_in_len, bigpkt, sizeof(bigpkt));
 	}
 
 }
@@ -462,23 +452,52 @@ void clearscreen(int mode,struct ledscreen *disp) {
 	return;
 }
 
-/* try and open the hiddevice.  The vendor and product have to be right!*/
-int open_dev(char *path) {
-	char buf[1024];
-	int i, fd;
-	struct hiddev_devinfo dinfo;
+int open_hiddev(struct ledscreen *disp) {
 
-	fd = open(path, O_RDWR);
-	if (fd >= 0) {
-		if (ioctl(fd, HIDIOCGDEVINFO, &dinfo) == 0) {
-			if (dinfo.vendor == (short)VENDOR && 
-				dinfo.product == (short)PRODUCT) {
-				return fd;
-			}
-		}
-		close(fd);
+	/* Oh my oh my. Need to find the output report descriptor for the device.
+	 * Using the output of 'lsusb -d 1d34:0013 -vvv', one can determin that:
+	 *
+	 * The report descriptor usage page is 65280. The usage we want is #1.
+	 * Why?  Dunno!  Seems to work though.  That usage isnt rooted under any
+	 * items so the path length is 1.
+	 *
+	 * So to make an input path that works with libhid:
+	 *
+	 * ((65280 << 16) + 1) == 0xff000001 */
+
+	unsigned char const pathlen = 1;
+	const int PATH_IN[] = { 0xff000001 };
+	HIDInterface* hid = NULL;
+	hid_return ret;
+
+	/* go search for a matching device.  I'm not clear on how this works if
+	 * there is more than one message board installed.  -jsj */
+	HIDInterfaceMatcher leds = { VENDOR, PRODUCT, NULL, NULL, 0 };
+	if ((ret = hid_init()) != HID_RET_SUCCESS) { 
+		fprintf(stderr,"hid_init failed with return code %d\n",ret);
+		return EXIT_FAILURE; 
 	}
-	return -1;
+	hid = hid_new_HIDInterface();
+	if (hid == NULL) { 
+		fprintf(stderr,"hid_new_HIDInterface() failed.\n",ret);
+		return EXIT_FAILURE; 
+	}
+	/* This call will forceably remove control of the device from the
+	 * kernel hid driver.  The fourth argument is the number of times the
+	 * call should try to close the device and snag it for our own devious
+	 * purposes before giving up.  It is what was used in the libhid
+	 * example code. */
+	if ((ret=hid_force_open(hid, 0, &leds, 3)) != HID_RET_SUCCESS) { 
+		fprintf(stderr,"hid_force_open failed with return code %d\n",ret);
+		return EXIT_FAILURE;
+	}
+
+	disp->hid = hid;
+	disp->path_in_len = pathlen;
+	disp->path_in = (int*)malloc(pathlen * sizeof(int));
+	memcpy(disp->path_in,PATH_IN,pathlen * sizeof(int));
+	return(EXIT_SUCCESS);
+
 }
 
 
@@ -508,26 +527,81 @@ void scroll(int dir, struct ledscreen *disp) {
 }
 
 
-
 /* overlay a character onto the display with the leftmost edge of the char
  * starting at xloc.  */
-void printchar(struct ledscreen *disp, char *font, char c, int xloc) {
+void printchar(struct ledscreen *disp, char c, int xloc) {
 
 	int cx,cy,x,y;
+	char *f;
 
+	f=(char*)disp->font;
 	for(y=0;y<LEDSY;y++) {
-		for (cx=0,x=xloc;x<LEDSX && cx<=5;cx++,x++) {
-			disp->led[x][y] = ((*(font+(c*7)+y) & (1<<cx))!=0)?1:disp->led[x][y];
+		for (cx=0,x=xloc;x<LEDSX && cx<=FONTX;cx++,x++) {
+			disp->led[x][y] = 
+				((*(f+(c*FONTY)+y) & (1<<cx))!=0)?  1:disp->led[x][y];
 		}
 	}
 }
+
+/* Contributed by Andy Scheller */
+/* displays the time in HH:MM format, set mode to 1 for 24-hour display.*/
+void printtime(struct ledscreen *disp, int mode) {
+	time_t rawtime;
+	struct tm* timeinfo;
+	time(&rawtime);
+	timeinfo = localtime(&rawtime);
+	char strtime[6];
+	strftime(strtime, 6, (mode==1?"%H:%M":"%I:%M"), timeinfo);
+	clearscreen(0, disp);
+	printchar(disp,strtime[0],0);
+	printchar(disp,strtime[1],4);
+	printchar(disp,strtime[2],8);
+	printchar(disp,strtime[3],12);
+	printchar(disp,strtime[4],16);
+}
+
+/* This is Andy Scheller's printtime code, modified to run forever and wiggle
+ * the colon.  Heh heh.  Thats almost dirty.*/
+void clockmode(struct ledscreen *disp, int mode, int forever) {
+
+	time_t rawtime;
+	time_t firsttime;
+	struct tm* timeinfo;
+	int oddsec;
+	char strtime[6];
+
+	time(&firsttime);
+	time(&rawtime);
+
+	while(forever || (rawtime - firsttime) < 3) {
+		time(&rawtime);
+		timeinfo = localtime(&rawtime);
+		oddsec = rawtime%2;
+
+		if(mode == 1) {
+			strftime(strtime, 6, "%H:%M", timeinfo);
+		} else {
+			strftime(strtime, 6, "%I:%M", timeinfo);
+		}
+			
+		clearscreen(0, disp);
+		printchar(disp,strtime[0],0);
+		printchar(disp,strtime[1],4);
+		printchar(disp,strtime[2],8+oddsec);
+		printchar(disp,strtime[3],12);
+		printchar(disp,strtime[4],16);
+		send_screen(disp);
+		usleep(100000);
+	}
+}
+
 
 /* Prints a test pattern to the screen.  pattern 0 and 1 are the all-on
  * and all-off patterns, which are pretty useful. */
 void testpatern (int which, struct ledscreen *disp) {
 	
 	int x, y;
-	char font[256*7];
+	/*char font[256*FONTY];*/
 
 
 	switch(which) {
@@ -574,12 +648,18 @@ void testpatern (int which, struct ledscreen *disp) {
 			}
 			break;
 		case 6: /* Jeff */
-			initfont1(font);
-			printchar(disp,font,'J',0);
-			printchar(disp,font,'e',4);
-			printchar(disp,font,'f',8);
-			printchar(disp,font,'f',12);
-			printchar(disp,font,'!',16);
+			/*initfont1(font);*/
+			printchar(disp,'J',0);
+			printchar(disp,'e',4);
+			printchar(disp,'f',8);
+			printchar(disp,'f',12);
+			printchar(disp,'!',16);
+			break;
+		case 7: /* 12h time */
+			printtime(disp,0);
+			break;
+		case 8: /* 24h time */
+			printtime(disp,1);
 			break;
 	}
 	return;
@@ -606,7 +686,19 @@ void scrolltest(struct ledscreen *disp) {
 /* call the right graphic header depending on style and direction. */
 void scrollpreamble(int isend, struct ledscreen *disp) {
 
+	int miltime=0;
+
 	switch (disp->preamble) {
+		case 5: 
+			if (!isend) {
+				clockmode(disp,2,0);
+			}
+			return;
+		case 4: 
+			if (!isend) {
+				clockmode(disp,1,0);
+			}
+			return;
 		case 3: 
 			scrollsquiggle(disp,isend,5*LEDSX);
 			return;
@@ -693,6 +785,7 @@ void scrollrndfade(struct ledscreen *disp, int isend, int width) {
 	}
 }
 
+/* its a squiggly line. */
 void scrollsquiggle(struct ledscreen *disp, int isend, int width) {
 
 	int count;
@@ -711,8 +804,10 @@ void scrollsquiggle(struct ledscreen *disp, int isend, int width) {
 		disp->led[LEDSX-1][y] = 1;
 		scroll(3,disp);
 		send_screen(disp);
+		usleep(disp->scrolldelay);
 	}
 	scroll(3,disp);
+	usleep(disp->scrolldelay);
 }
 
 
@@ -720,7 +815,7 @@ void scrollsquiggle(struct ledscreen *disp, int isend, int width) {
 void fancytest(struct ledscreen *disp) {
 	int count, tp, b;
 	for (count=0;count<3;count++){
-		for (tp=1;tp<=6;tp++) {
+		for (tp=1;tp<=MAXTESTPAT;tp++) {
 			testpatern(0,disp);
 			testpatern(tp,disp);
 			for (b=0;b<=2;b++) {
@@ -735,7 +830,7 @@ void fancytest(struct ledscreen *disp) {
 
 /* scroll a character onto the display.  Not all directions are implemented
  * yet.*/
-void scrollchar(struct ledscreen *disp, char *font, char ch) {
+void scrollchar(struct ledscreen *disp, char ch) {
 
 	int w;
 
@@ -744,7 +839,7 @@ void scrollchar(struct ledscreen *disp, char *font, char ch) {
 
 	for (w=0;w<=4;w++) {
 		scroll(3,disp);
-		printchar(disp,font,ch,LEDSX-w);
+		printchar(disp,ch,LEDSX-w);
 		send_screen(disp);
 		usleep(disp->scrolldelay);
 	}
@@ -756,14 +851,14 @@ void scrollchar(struct ledscreen *disp, char *font, char ch) {
 
 /* char by char, scroll a string onto the screen.  This is pretty much what
  * we're here for, isn't it? */
-void scrollmsg(struct ledscreen *disp, char *font, char* buf) {
+void scrollmsg(struct ledscreen *disp, char* buf) {
 	
 	char *p;
 
 	p=buf;
 
 	while(*p){
-		scrollchar(disp,font,*p++);
+		scrollchar(disp,*p++);
 	}
 
 	return;
@@ -771,7 +866,7 @@ void scrollmsg(struct ledscreen *disp, char *font, char* buf) {
 	
 
 /* Same thing, bigger scope.  Scroll a whole file. */
-void scrollfile(struct ledscreen *disp, char *font, FILE* cin) {
+void scrollfile(struct ledscreen *disp, FILE* cin) {
 	
 	char buf[8192];
 	char *nl;
@@ -783,24 +878,34 @@ void scrollfile(struct ledscreen *disp, char *font, FILE* cin) {
 			(now - disp->lastupdate) > 10) {
 			scrollpreamble(0,disp);
 		}
-		scrollmsg(disp,font,buf);
+		scrollmsg(disp,buf);
 	}
 
+}
+
+/* called via atexit. */
+void bye(void) {
+/* if I wanted to clean it up right, this is what I'd do.*/
+/*	if(hid) {
+		hid_close(hid);
+		hid_delete_HIDInterface(&hid);
+		hid_cleanup();
+	}
+*/
 }
 
 /* yah, its main allright. */
 int main (int argc, char **argv) {
 
-	char devname[1024] = "";
 	int x, y, b, tp;
 	struct ledscreen maindisp;
 	struct ledscreen *disp;
 	struct hiddev_devinfo devinfo;
-	char fontbuf[256*7];
-	char *font;
+	ledfont fontbuf;
+	ledfont *font;
 	int getoptc, option_index = 0;
 	int brightness = 2;
-	int speed = 0;
+	int speed = 20000;
 	char *msg = NULL;
 	int test=0;
 	int repeat=0;
@@ -808,23 +913,27 @@ int main (int argc, char **argv) {
 	FILE *cin;
 	int devno;
 	int preamble=0;
+	int clock=0;
+
 
 	static struct option long_options[] = {
 		{ "brightness",	optional_argument,	0, 'b' },
+		{ "clock",	optional_argument,	0, 'c' },
+		{ "clock24h",	optional_argument,	0, 'C' },
 		{ "debug",	no_argument,	0, 'd' },
 		{ "echo",	no_argument,	0, 'e' },
 		{ "help",	no_argument,	0, 'h' },
 		{ "message",	optional_argument,	0, 'm' },
-		{ "outdev",	optional_argument,	0, 'o' },
 		{ "repeat",	no_argument,	0, 'r' },
 		{ "speed",	optional_argument,	0, 's' },
 		{ "test",	no_argument,	0, 't' },
 		{ 0,0,0,0 }
 	};
 
+	atexit(bye);
 
 	while (1) {
-		getoptc = getopt_long (argc, argv, "ho:m:b:s:p:dtre", 
+		getoptc = getopt_long (argc, argv, "ho:m:b:s:p:dtrencC", 
 			long_options, &option_index
 		);
 
@@ -836,19 +945,18 @@ int main (int argc, char **argv) {
 				/* maybe i just dont know the right way...*/
 				fprintf(stdout,"Usage- %s [opts] [files]\n",argv[0]);
 				fprintf(stdout,"\t--brightness,-b - how bright, 0-2\n");
+				fprintf(stdout,"\t--clock,-c      - Show the time\n");
+				fprintf(stdout,"\t--clock24h,-C   - Show the 24h time\n");
 				fprintf(stdout,"\t--debug,-d      - mostly useless\n");
 				fprintf(stdout,"\t--echo,-e       - send copy to stdout\n");
 				fprintf(stdout,"\t--help,-h       - duh\n");
 				fprintf(stdout,"\t--message,-m    - a single line to scroll\n");
-				fprintf(stdout,"\t--outdev,-o     - specifiy the exact path to the hiddev\n");
+				fprintf(stdout,"\t--nodev,-n      - dont use the device\n");
 				fprintf(stdout,"\t--preamble,-p   - send a graphic before the text.\n");
 				fprintf(stdout,"\t--repeat,-r     - keep scrolling forever\n");
 				fprintf(stdout,"\t--speed,-s      - ms to delay\n");
 				fprintf(stdout,"\t--test,-t       - output a test pattern\n");
 				exit(0);
-				break;
-			case 'o':
-				strcpy(devname,optarg);
 				break;
 			case 'b':
 				if (optarg != NULL) {
@@ -890,34 +998,30 @@ int main (int argc, char **argv) {
 			case 'e':
 				echo = 1;
 				break;
+			case 'n':
+				nodev = 1;
+				break;
+			case 'c':
+				clock = 2;
+				break;
+			case 'C':
+				clock = 1;
+				break;
 			default:
 				abort();
 		}
 	}
 
-	font = fontbuf;
+	font = &fontbuf;
 	initfont1(font);
 
 	srand(getpid());
 
 	disp = &maindisp;
-	if ( *devname != '\0' ) {
-		if ((disp->ledfd = open_dev(devname)) == -1) {
-			fprintf(stderr,"Couldnt open device %s.\n",devname);
-			exit(1);
-		}
-	} else {
-		/* Its got to be one of the hiddevs, so go looking.*/
-		/* This can't be the right way to search for a device... */
-		for(devno=0;devno<32;devno++) {
-			sprintf(devname,"/dev/usb/hiddev%d",devno);
-			if ((disp->ledfd = open_dev(devname)) != -1) {
-				break;
-			}
-		}
-		if(disp->ledfd == -1) {
-			fprintf(stderr,"Couldn't find the device.  Was expecting to find a readable\n/dev/usb/hiddev* that matched vendor %0x and product %0x.  Is the\ndevice plugged in? Do you have permission?\n",VENDOR,PRODUCT);
-			exit(1);
+	if (!nodev) {
+		if(open_hiddev(disp)==EXIT_FAILURE) {
+			fprintf(stderr,"Couldn't find the device.  Was expecting to find a readable\ndevice that matched vendor %0x and product %0x.  Is the\ndevice plugged in? Do you have permission?\n",VENDOR,PRODUCT);
+			return(EXIT_FAILURE);
 		}
 	}
 
@@ -925,13 +1029,13 @@ int main (int argc, char **argv) {
 	disp->scrolldelay = speed;
 	disp->scrolldir = 3;
 	disp->preamble = preamble;
+	disp->font = (ledfont*)font;
 
 	/* clears the display */
 	clearscreen(0,disp);
 
 	if(test) {
 		fprintf(stdout,"Version is %s\n",version);
-		fprintf(stdout,"devname is %s\n",devname);
 		fprintf(stdout,"brightness is %d\n",brightness);
 		fprintf(stdout,"debug is %d\n",debug);
 		disp->scrolldelay = 100000;
@@ -939,11 +1043,15 @@ int main (int argc, char **argv) {
 		exit(0);
 	}
 
+	if(clock) {
+		clockmode(disp,clock,repeat);
+	}
+
 	/* if there is a message, print it and dont bother with files. */
 	if(msg != NULL) {
 		do {
 			scrollpreamble(0,disp);
-			scrollmsg(disp,font,msg);
+			scrollmsg(disp,msg);
 			scrollpreamble(1,disp);
 		} while (repeat);
 		exit(0);
@@ -961,7 +1069,7 @@ int main (int argc, char **argv) {
 					exit(0);
 				}
 				scrollpreamble(0,disp);
-				scrollfile(disp,font,cin);
+				scrollfile(disp,cin);
 				scrollpreamble(1,disp);
 				fclose(cin);
 				fileidx++;
@@ -972,7 +1080,7 @@ int main (int argc, char **argv) {
 
 	/* read from stdin. */
 	scrollpreamble(0,disp);
-	scrollfile(disp,font,stdin);
+	scrollfile(disp,stdin);
 	scrollpreamble(1,disp);
 
 }

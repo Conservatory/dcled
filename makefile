@@ -8,8 +8,9 @@ INSTALLDIR=/usr/local/bin
 # If gcc isnt your compiler, change it here.
  
 CC=gcc
+
 CFLAGS= -g -O3 
-LDFLAGS= -g -lm
+LDFLAGS= -g -lm -lhid
  
 # You probaby dont need to change anything below this line...
  
