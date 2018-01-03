@@ -1,4 +1,19 @@
-                    Installing DCLED on a Macintosh (10.5.6)
+Update- 
+
+Robert Flick has written a Homebrew formula for dcled that lives on github and
+is maintained by him.  According to Robert:  To install dcled with homebrew
+(http://mxcl.github.com/homebrew/) call "brew install dcled" on the command
+line.
+
+Being Mac free at the moment, I've not tried it myself, but he says it works
+great.  Give it a shot and send us your feedback!
+
+Sat Sep  4 09:35:03 PDT 2010  -jsj 
+
+
+
+
+                  Installing DCLED on a Macintosh (10.5.6)
                                 James Bruce
 
 Introduction
@@ -57,7 +72,7 @@ Introduction
     1. Enter the following commands to download and install DCLED.
     2. mkdir dcled (This keeps the uncompressed files organised)
     3. cd dcled/
-    4. curl -O http://www.last-outpost.com/~malakai/dcled/dcled-1.7.tgz
+    4. curl -O http://www.jeffrika.com/~malakai/dcled/dcled-1.9.tgz
     5. tar -xvf dcled01.7.tgz
     6. make
     7. You should now be able to run DCLED, type in ./dcled

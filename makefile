@@ -1,8 +1,11 @@
 # This file is part of dcled, written on Sun Jan  4 00:18:16 PST 2009
 # Jeff Jahr <malakais@pacbell.net> -jsj 
- 
+
+# What goes into the archive?
+DIST=dcled-1.9
+DISTFILES= dcled.c makefile README README-MACOS 40-dcled.rules
+
 # INSTALLDIR is where the binaries get installed
- 
 INSTALLDIR=/usr/local/bin
 
 # If gcc isnt your compiler, change it here.
@@ -46,7 +49,9 @@ udev:
 	# Done!
 
 dist:
-	tar -cvzf dcled.tgz dcled.c makefile README README-MACOS 40-dcled.rules
+	mkdir ${DIST}
+	cp ${DISTFILES} ${DIST}
+	tar -cvzf ${DIST}.tgz ${DIST}
 
 # ...and now the dependencies. 
 dcled.o : dcled.c

@@ -21,7 +21,7 @@
 
 dcled - userland driver for Dream Cheeky (Dream Link?) USB LED Message Board
 
-Copyright 2009 Jeff Jahr <malakais@pacbell.net> 
+Copyright 2009,2010 Jeff Jahr <malakais@pacbell.net> 
 
 This is free software.  G'head, use it all you want.  Because of the use of
 libhid, however, this might now be considered GPL licensed.  I kind of like the
@@ -31,7 +31,6 @@ people contact my people and we'll work it out.
 
 Version 1.0 took ~12 hours to write, and was my first foray into usb device
 programming.  This is probably not a real good example of how to do ANYTHING.
-Sun Jan  4 00:18:41 PST 2009 -jsj
 
 Dcled runs on linux, and perhaps other operating systesm.  To use it, you need
 to have the usb hiddev loaded- on my system that seems to be the module named
@@ -86,6 +85,7 @@ Usage- ./dcled [opts] [files]
         --nodev       -n   Don't use the device
         --preamble    -p   Send a graphic before the text.
         --repeat      -r   Keep scrolling forever
+        --fastprint   -f   Jump to end of message.
         --speed       -s   General delay in ms
         --test        -t   Output a test pattern
 
@@ -139,7 +139,6 @@ dcled --test
 Here is how I use it to monitor my game server syslog file:
 
 tail -f syslog | dcled -e -p static
-
 
 WHAT IS UP WITH BCDCLOCK?
 
@@ -203,6 +202,8 @@ Additional contributions made by:
   * Glen Smith      - Wrote the spiral and fire animations.
   * Raymond         - Initial udev rules file
   * Thomas Ilnseher - Bug reports
+  * Robert Flick    - Fast Print mode for keeping a still message displayed,
+                      Mac Homebrew build formula.
 
 If you want to contribute to dcled, send me your code diffs!  Be sure to
 specifiy if you DONT want me to include your name or email address in the

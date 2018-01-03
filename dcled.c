@@ -10,6 +10,7 @@
  * Andy Scheller 
  * Michael Wensley
  * Glen Smith
+ * Robert Flick
  */
 
 #include <fcntl.h>
@@ -24,6 +25,7 @@
 #include <getopt.h>
 #include <time.h>
 #include <hid.h>
+#include <sys/select.h>
 
 #define VENDOR 0x1d34
 #define PRODUCT 0x0013
@@ -93,8 +95,10 @@ void fire(struct ledscreen *disp, int isend);
 
 int debug = 0;
 int echo = 0;
+int fastprint = 0;
 int nodev = 0;
-char version[] = "1.8";
+int repeat=0;
+char version[] = "1.9";
 
 /* 
   Copy a font definition into a character pointer.  In this application, fonts
@@ -629,7 +633,6 @@ void bcdclock(struct ledscreen *disp, int forever) {
 	}
 }
 
-
 /* Contributed by Andy Scheller */
 /* displays the time in HH:MM format, set mode to 1 for 24-hour display.*/
 void printtime(struct ledscreen *disp, int mode) {
@@ -812,7 +815,7 @@ void scrollpreamble(int isend, struct ledscreen *disp) {
 			return;
 		case 0:
 		default:
-			if (isend) {
+			if (isend && !fastprint) {
 				clearscreen(1,disp);
 			}
 			return;
@@ -1079,6 +1082,64 @@ void scrollmsg(struct ledscreen *disp, char* buf) {
 
 	return;
 }
+
+void keep_lit(struct ledscreen *disp) {
+	while (1) {
+		send_screen(disp);
+		usleep(250000);
+	}
+}
+
+/* Jump to the end of the message and print just the chars that will fit on the
+ * screen without scrolling.  Contributed by Robert Flick */
+void printmsg(struct ledscreen *disp, char* msg) {
+	
+	char* p = msg;
+	int i = 0;
+	int numchars, start;
+	/* set pack to 0 if you want space between letters and only four chars per display. */
+	int pack = 1;
+
+	clearscreen(0, disp);
+
+	numchars = LEDSX / (FONTX-pack);
+
+	start = strlen(msg);
+	if (start > 0) {
+		/* trim a trailing newline, which would otherwise be rendered as a
+		 * space by the line-by-line IO reader.*/
+		if ((*(msg+start-1)) == '\n') {
+			start = start - numchars -1;
+		} else {
+			start = start - numchars;
+		}
+	}
+	/* don't backtrack too far. */
+	if(start<0) {
+		start=0;
+	}
+	p = msg + start;
+
+	/* put 'em on the screen. */
+	while(*p != '\0') {
+		printchar(disp,*p, i*(FONTX-pack));
+		p++;
+		i++;
+	}
+
+	/* take care of echoing */
+	p=msg;
+	if(echo){
+		while(*p != '\0') {
+			fputc(*p++,stdout);
+		}
+		fflush(stdout);
+	}
+	send_screen(disp);
+	/* line print speed can be controlled with the --speed parameter */
+	usleep(disp->scrolldelay);
+}
+
 	
 
 /* Same thing, bigger scope.  Scroll a whole file. */
@@ -1087,14 +1148,44 @@ void scrollfile(struct ledscreen *disp, FILE* cin) {
 	char buf[8192];
 	char *nl;
 	time_t now;
-	
-	while(fgets(buf,8192,cin)) {
-		time(&now);
-		if(disp->preamble!= 0 &&
-			(now - disp->lastupdate) > 10) {
-			scrollpreamble(0,disp);
+	time_t temptime;
+	fd_set inset;
+	struct timeval timeout;
+
+	while(1) {
+		FD_ZERO(&inset);
+		FD_SET(fileno(cin),&inset);
+
+		/* How long to wait for IO before coming back to refresh the display. */
+		timeout.tv_sec = 0;
+		timeout.tv_usec = 250000; 
+
+		select(fileno(cin)+1,&inset,NULL,NULL,&timeout);
+
+		if ( ! FD_ISSET(fileno(cin),&inset) ) {
+			if (repeat) {
+				/* send_screen twiddles the last update time. just undo it.*/
+				temptime = disp->lastupdate;
+				send_screen(disp);
+				disp->lastupdate = temptime;
+			}
+		} else {
+			if(fgets(buf,8192,cin)) {
+				time(&now);
+				if(disp->preamble!= 0 &&
+					(now - disp->lastupdate) > 10) {
+					scrollpreamble(0,disp);
+				}
+				if(fastprint) {
+					printmsg(disp,buf);
+				} else {
+					scrollmsg(disp,buf);
+				}
+			} else {
+				/* end of file. */
+				return;
+			}
 		}
-		scrollmsg(disp,buf);
 	}
 
 }
@@ -1123,7 +1214,6 @@ int main (int argc, char **argv) {
 	int speed = 20000;
 	char *msg = NULL;
 	int test=0;
-	int repeat=0;
 	int fileidx=0;
 	FILE *cin;
 	int devno;
@@ -1141,6 +1231,7 @@ int main (int argc, char **argv) {
 		{ "help",	no_argument,	0, 'h' },
 		{ "message",	optional_argument,	0, 'm' },
 		{ "repeat",	no_argument,	0, 'r' },
+		{ "fastprint",	no_argument,	0, 'f' },
 		{ "speed",	optional_argument,	0, 's' },
 		{ "test",	no_argument,	0, 't' },
 		{ 0,0,0,0 }
@@ -1149,7 +1240,7 @@ int main (int argc, char **argv) {
 	atexit(bye);
 
 	while (1) {
-		getoptc = getopt_long (argc, argv, "ho:m:b:s:p:dtrencCB", 
+		getoptc = getopt_long (argc, argv, "ho:m:b:s:p:dtrfencCB", 
 			long_options, &option_index
 		);
 
@@ -1172,6 +1263,7 @@ int main (int argc, char **argv) {
 				fprintf(stdout,"\t--nodev       -n   Don't use the device\n");
 				fprintf(stdout,"\t--preamble    -p   Send a graphic before the text.\n");
 				fprintf(stdout,"\t--repeat      -r   Keep scrolling forever\n");
+				fprintf(stdout,"\t--fastprint   -f   Jump to end of message.\n");
 				fprintf(stdout,"\t--speed       -s   General delay in ms\n");
 				fprintf(stdout,"\t--test        -t   Output a test pattern\n");
 				fprintf(stdout,"\n");
@@ -1239,6 +1331,9 @@ int main (int argc, char **argv) {
 			case 'r':
 				repeat = 1;
 				break;
+			case 'f':
+				fastprint = 1;
+				break;
 			case 'e':
 				echo = 1;
 				break;
@@ -1297,7 +1392,11 @@ int main (int argc, char **argv) {
 	if(msg != NULL) {
 		do {
 			scrollpreamble(0,disp);
-			scrollmsg(disp,msg);
+			if(fastprint) {
+				printmsg(disp,msg);
+			} else {
+				scrollmsg(disp,msg);
+			}
 			scrollpreamble(1,disp);
 		} while (repeat);
 		exit(0);
