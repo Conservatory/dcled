@@ -45,6 +45,9 @@ struct ledscreen {
 
 void clearscreen(int mode,struct ledscreen *disp);
 void scroll(int dir, struct ledscreen *disp);
+void scrollrndfade(struct ledscreen *disp, int isend, int width);
+void scrollpreamble(int which, int isend, struct ledscreen *disp);
+void staticwarmup(struct ledscreen *disp, int isend, int width);
 
 int debug = 0;
 int echo = 0;
@@ -514,7 +517,7 @@ void printchar(struct ledscreen *disp, char *font, char c, int xloc) {
 	}
 }
 
-/* Prints a well defined pattern to the screen.  pattern 0 and 1 are the all-on
+/* Prints a test pattern to the screen.  pattern 0 and 1 are the all-on
  * and all-off patterns, which are pretty useful. */
 void testpatern (int which, struct ledscreen *disp) {
 	
@@ -595,33 +598,90 @@ void scrolltest(struct ledscreen *disp) {
 	}
 }
 
-/* look martha!  An intron!  it prints a little random stamp, but isnt used
- * anywhere yet.  Someday maybe. */
-void scrollrndfade(struct ledscreen *disp, int width) {
+/* call the right graphic header depending on style and direction. */
+void scrollpreamble(int which, int isend, struct ledscreen *disp) {
+
+	switch (which) {
+		case 2: 
+			staticwarmup(disp,isend,5*LEDSX);
+			return;
+		case 1: 
+			scrollrndfade(disp,isend,3*LEDSX);
+			return;
+		case 0:
+		default:
+			if (isend) {
+				clearscreen(1,disp);
+			}
+			return;
+	}
+
+}
+
+/* make the display warm up with static, like an old tv. */
+void staticwarmup(struct ledscreen *disp, int isend, int width) {
+
+	int count, origbright;
+	int x,y;
+
+	
+	if (!isend) {
+		origbright = disp->brightness;
+
+		for (count=0;count<width;count++) {
+			for (x=0;x<LEDSX;x++) {
+				for(y=0;y<LEDSY;y++) {
+					disp->led[x][y] = 
+						(1.8*(float)rand()*width/(float)(RAND_MAX)<count)?1:0;
+					disp->brightness = 
+						(int)(3.0*(((float)count/(float)width)+0.3*(float)rand()/(float)(RAND_MAX)));
+				}
+			}
+			send_screen(disp);
+		}
+		disp->brightness = origbright;
+		clearscreen(0,disp);
+		send_screen(disp);
+		usleep(disp->scrolldelay * 5);
+	} else {
+		clearscreen(1,disp);
+	}
+
+}
+			
+/* A random banner */
+void scrollrndfade(struct ledscreen *disp, int isend, int width) {
 
 	int x,y;
 	int odds;
 
-	for(odds=0;odds<width;odds++){
-		for(y=0;y<LEDSY;y++) {
-			disp->led[LEDSX-1][y] = 
-				((float)rand()*width/(float)(RAND_MAX)<odds)?1:0;
+	if (!isend) {
+		for(odds=0;odds<width;odds++){
+			for(y=0;y<LEDSY;y++) {
+				disp->led[LEDSX-1][y] = 
+					(1.8*(float)rand()*width/(float)(RAND_MAX)<odds)?1:0;
+			}
+
+			send_screen(disp);
+			usleep(disp->scrolldelay);
+			scroll(3,disp);
 		}
-
-		send_screen(disp);
-		usleep(disp->scrolldelay);
 		scroll(3,disp);
-	}
+		scroll(3,disp);
+	} else {
+		scroll(3,disp);
+		scroll(3,disp);
+		for(odds=width;odds>0;odds--){
+			for(y=0;y<LEDSY;y++) {
+				disp->led[LEDSX-1][y] = 
+					(1.8*(float)rand()*width/(float)(RAND_MAX)<odds)?1:0;
+			}
 
-	for(odds=width;odds>0;odds--){
-		for(y=0;y<LEDSY;y++) {
-			disp->led[LEDSX-1][y] = 
-				((float)rand()*width/(float)(RAND_MAX)<odds)?1:0;
+			send_screen(disp);
+			usleep(disp->scrolldelay);
+			scroll(3,disp);
 		}
-
-		send_screen(disp);
-		usleep(disp->scrolldelay);
-		scroll(3,disp);
+		clearscreen(1,disp);
 	}
 }
 
@@ -689,7 +749,6 @@ void scrollfile(struct ledscreen *disp, char *font, FILE* cin) {
 	while(fgets(buf,8192,cin)) {
 		scrollmsg(disp,font,buf);
 	}
-	clearscreen(1,disp);
 
 }
 
@@ -712,6 +771,7 @@ int main (int argc, char **argv) {
 	int fileidx=0;
 	FILE *cin;
 	int devno;
+	int preamble=0;
 
 	static struct option long_options[] = {
 		{ "brightness",	optional_argument,	0, 'b' },
@@ -728,7 +788,7 @@ int main (int argc, char **argv) {
 
 
 	while (1) {
-		getoptc = getopt_long (argc, argv, "ho:m:b:s:dtre", 
+		getoptc = getopt_long (argc, argv, "ho:m:b:s:p:dtre", 
 			long_options, &option_index
 		);
 
@@ -745,6 +805,7 @@ int main (int argc, char **argv) {
 				fprintf(stdout,"\t--help,-h       - duh\n");
 				fprintf(stdout,"\t--message,-m    - a single line to scroll\n");
 				fprintf(stdout,"\t--outdev,-o     - specifiy the exact path to the hiddev\n");
+				fprintf(stdout,"\t--preamble,-p   - send a graphic before the text.\n");
 				fprintf(stdout,"\t--repeat,-r     - keep scrolling forever\n");
 				fprintf(stdout,"\t--speed,-s      - ms to delay\n");
 				fprintf(stdout,"\t--test,-t       - output a test pattern\n");
@@ -771,6 +832,11 @@ int main (int argc, char **argv) {
 					exit(1);
 				}
 				break;
+			case 'p':
+				if (optarg != NULL) {
+					preamble = atoi(optarg);
+				}
+				break;
 			case 'm':
 				if (optarg != NULL) {
 					msg = strdup(optarg);
@@ -795,6 +861,8 @@ int main (int argc, char **argv) {
 
 	font = fontbuf;
 	initfont1(font);
+
+	srand(getpid());
 
 	disp = &maindisp;
 	if ( *devname != '\0' ) {
@@ -837,8 +905,9 @@ int main (int argc, char **argv) {
 	/* if there is a message, print it and dont bother with files. */
 	if(msg != NULL) {
 		do {
+			scrollpreamble(preamble,0,disp);
 			scrollmsg(disp,font,msg);
-			clearscreen(1,disp);
+			scrollpreamble(preamble,1,disp);
 		} while (repeat);
 		exit(0);
 	}
@@ -854,7 +923,9 @@ int main (int argc, char **argv) {
 					);
 					exit(0);
 				}
+				scrollpreamble(preamble,0,disp);
 				scrollfile(disp,font,cin);
+				scrollpreamble(preamble,1,disp);
 				fclose(cin);
 				fileidx++;
 			}
@@ -863,6 +934,8 @@ int main (int argc, char **argv) {
 	}
 
 	/* read from stdin. */
+	scrollpreamble(preamble,0,disp);
 	scrollfile(disp,font,stdin);
+	scrollpreamble(preamble,1,disp);
 
 }
