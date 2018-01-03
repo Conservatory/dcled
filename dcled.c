@@ -11,9 +11,7 @@
  * Michael Wensley
  */
 
-#include <asm/types.h>
 #include <fcntl.h>
-#include <linux/hiddev.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
@@ -72,7 +70,7 @@ void printtime(struct ledscreen *disp,int mode);
 int debug = 0;
 int echo = 0;
 int nodev = 0;
-char version[] = "1.4";
+char version[] = "1.5";
 
 /* 
   Copy a font definition into a character pointer.  In this application, fonts
@@ -900,7 +898,6 @@ int main (int argc, char **argv) {
 	int x, y, b, tp;
 	struct ledscreen maindisp;
 	struct ledscreen *disp;
-	struct hiddev_devinfo devinfo;
 	ledfont fontbuf;
 	ledfont *font;
 	int getoptc, option_index = 0;

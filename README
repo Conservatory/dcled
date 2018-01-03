@@ -140,5 +140,6 @@ Additional contributions made by:
   * Sam Dineley     - bug reports
   * Andy Scheller   - clock code, redrew the 'g', great feedback
   * Michael Wensley - application of libhid clue stick
+  * James Bruce     - First to get it to compile under Mac OSX.
 
 -jsj
