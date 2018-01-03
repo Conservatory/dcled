@@ -1,5 +1,5 @@
 /* dcled - userland driver for Dream Cheeky (Dream Link?) USB LED Message Board
- * Copyright 2009 Jeff Jahr <malakais@pacbell.net>
+ * Copyright 2009,2010 Jeff Jahr <malakais@pacbell.net>
  * This is free software.  G'head, use it all you want. 
  * Version 1.0 took ~12 hours to write, and was my first foray into usb
  * device programming.  This is probably not a real good example of how to
@@ -75,6 +75,7 @@ struct preamble preambles[] = {
 	{ "clock"   ,"Shows the time", "Andy Scheller" },
 	{ "spiral"  ,"Draws a spiral", "Glen Smith" },
 	{ "fire"    ,"A nice warm hearth", "Glen Smith" },
+	{ "bcdclock"   ,"Shows the time in binary", "Jeff Jahr" },
 	{ NULL,NULL,NULL }
 };
 
@@ -93,7 +94,7 @@ void fire(struct ledscreen *disp, int isend);
 int debug = 0;
 int echo = 0;
 int nodev = 0;
-char version[] = "1.7";
+char version[] = "1.8";
 
 /* 
   Copy a font definition into a character pointer.  In this application, fonts
@@ -444,7 +445,12 @@ void send_screen (struct ledscreen *disp) {
 		memcpy(bigpkt+((row/2)*sizeof(struct ledpkt)), &pkt, sizeof(struct ledpkt));
 	}
 	if (!nodev) {
-		hid_set_output_report(disp->hid, disp->path_in, disp->path_in_len, bigpkt, sizeof(bigpkt));
+		const unsigned int chunk_count = 4;
+		const unsigned int chunk_size = sizeof(bigpkt) / chunk_count;
+		int chunk;
+		for (chunk=0;chunk<chunk_count;chunk++) {
+			hid_set_output_report(disp->hid, disp->path_in, disp->path_in_len, bigpkt+(chunk*chunk_size), chunk_size);
+		}
 	}
 
 }
@@ -564,6 +570,66 @@ void printchar(struct ledscreen *disp, char c, int xloc) {
 	}
 }
 
+/* print a single decimal digit as a vertical line of binary bits. */
+void printBCDchar(struct ledscreen *disp, char c, int xloc, int baseline) {
+
+	int val;
+
+	if (baseline >= LEDSY || baseline-5 < 0) {
+		baseline = LEDSY-1;
+	}
+
+	if (!isdigit(c)) {
+		if ( c == '|' ) {
+			val = 15;
+		} else {
+			val = 0;
+		}
+	} else {
+		val = c - '0';
+	}
+
+	disp->led[xloc][baseline-0]=(val&1)?1:0;
+	disp->led[xloc][baseline-1]=(val&2)?1:0;
+	disp->led[xloc][baseline-2]=(val&4)?1:0;
+	disp->led[xloc][baseline-3]=(val&8)?1:0;
+
+	return;
+}
+
+/* make one of those BCD clock displays that every geek seems to have.*/
+void bcdclock(struct ledscreen *disp, int forever) {
+
+	time_t rawtime;
+	time_t firsttime;
+	struct tm* timeinfo;
+	char strtime[11];
+	int x,y;
+	int digit;
+	char *p;
+
+	time(&firsttime);
+	time(&rawtime);
+
+	while(forever || (rawtime - firsttime) < 3) {
+		time(&rawtime);
+		timeinfo = localtime(&rawtime);
+
+		strftime(strtime, 11, " %I %M %S ", timeinfo);
+
+		clearscreen(0, disp);
+
+		/* draw the digits */
+		for(p=strtime,x=1;*p;p++,x+=2) {
+			printBCDchar(disp, *p, x, LEDSY-3);
+		}
+		send_screen(disp);
+		usleep(disp->scrolldelay * 10);
+
+	}
+}
+
+
 /* Contributed by Andy Scheller */
 /* displays the time in HH:MM format, set mode to 1 for 24-hour display.*/
 void printtime(struct ledscreen *disp, int mode) {
@@ -591,6 +657,11 @@ void clockmode(struct ledscreen *disp, int mode, int forever) {
 	int oddsec;
 	char strtime[6];
 
+	if (mode == 3) {	
+		bcdclock(disp,forever);
+		return;
+	}
+
 	time(&firsttime);
 	time(&rawtime);
 
@@ -615,7 +686,6 @@ void clockmode(struct ledscreen *disp, int mode, int forever) {
 		usleep(100000);
 	}
 }
-
 
 /* Prints a test pattern to the screen.  pattern 0 and 1 are the all-on
  * and all-off patterns, which are pretty useful. */
@@ -715,6 +785,11 @@ void scrollpreamble(int isend, struct ledscreen *disp) {
 			return;
 		case 6: 
 			spiral(disp);
+			return;
+		case 8: 
+			if (!isend) {
+				clockmode(disp,3,0);
+			}
 			return;
 		case 5: 
 			if (!isend) {
@@ -965,7 +1040,7 @@ void fancytest(struct ledscreen *disp) {
 	disp->preamble = 0;
 	disp->scrolldelay = 10000;
 	disp->brightness = 0;
-	sprintf(msg,"*** dcled %s Copyright 2009 Jeff Jahr <malakais@pacbell.net> ***     ",version);
+	sprintf(msg,"*** dcled %s Copyright 2010 Jeff Jahr <malakais@pacbell.net> ***     ",version);
 	scrollmsg(disp,msg);
 }
 
@@ -1060,6 +1135,7 @@ int main (int argc, char **argv) {
 		{ "brightness",	optional_argument,	0, 'b' },
 		{ "clock",	optional_argument,	0, 'c' },
 		{ "clock24h",	optional_argument,	0, 'C' },
+		{ "bcdclock",	optional_argument,	0, 'B' },
 		{ "debug",	no_argument,	0, 'd' },
 		{ "echo",	no_argument,	0, 'e' },
 		{ "help",	no_argument,	0, 'h' },
@@ -1073,7 +1149,7 @@ int main (int argc, char **argv) {
 	atexit(bye);
 
 	while (1) {
-		getoptc = getopt_long (argc, argv, "ho:m:b:s:p:dtrencC", 
+		getoptc = getopt_long (argc, argv, "ho:m:b:s:p:dtrencCB", 
 			long_options, &option_index
 		);
 
@@ -1088,6 +1164,7 @@ int main (int argc, char **argv) {
 				fprintf(stdout,"\t--brightness  -b   How bright, 0-2\n");
 				fprintf(stdout,"\t--clock       -c   Show the time\n");
 				fprintf(stdout,"\t--clock24h    -C   Show the 24h time\n");
+				fprintf(stdout,"\t--bcdclock    -B   Show the time in binary\n");
 				fprintf(stdout,"\t--debug       -d   Mostly useless\n");
 				fprintf(stdout,"\t--echo        -e   Send copy to stdout\n");
 				fprintf(stdout,"\t--help        -h   Show this message\n");
@@ -1173,6 +1250,9 @@ int main (int argc, char **argv) {
 				break;
 			case 'C':
 				clock = 1;
+				break;
+			case 'B':
+				clock = 3;
 				break;
 		}
 	}

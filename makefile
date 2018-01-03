@@ -4,7 +4,7 @@
 # INSTALLDIR is where the binaries get installed
  
 INSTALLDIR=/usr/local/bin
- 
+
 # If gcc isnt your compiler, change it here.
  
 CC=gcc
@@ -36,9 +36,17 @@ clean:
 install:
 	mkdir -p $(INSTALLDIR)
 	cp dcled $(INSTALLDIR)
+	#
+	# Now run 'make udev' if you want to install the device permissions.
+	#
+
+udev:
+	cp 40-dcled.rules /lib/udev/rules.d
+	service udev restart
+	# Done!
 
 dist:
-	tar -cvzf dcled.tgz dcled.c makefile README
+	tar -cvzf dcled.tgz dcled.c makefile README README-MACOS 40-dcled.rules
 
 # ...and now the dependencies. 
 dcled.o : dcled.c

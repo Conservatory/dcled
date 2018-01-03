@@ -52,24 +52,33 @@ As of dcled version 1.4, you are going to need a copy of the libhid-dev files
 in order to build dcled.  If you are running debian or ubuntu, try running
 'apt-get install libhid-dev' to get the right files installed.
 
-Type make.  That should build an executable called 'dcled'.  If that doesnt
-work, try compling it by hand.  There is an install option in the makefile that
-will copy the executable into /usr/local/bin.
+Type 'make'.  That should build an executable called 'dcled'.  If that doesnt
+work, try compling it by hand.  There is an install option in the makefile.  If
+the first make command was successful, run 'make install' as root to copy the
+executable into /usr/local/bin.
 
+As of dcled version 1.8, there is a linux udev rules file that will set the
+permissions of the dcled device such that members of the plugdev group can
+access the hardware without being root.  It seems to work pretty well under
+Ubuntu linux, but it isn't very well tested elsewhere and I can't vouch for how
+will it will work under other OS's.  If you want to give it a shot, type
+'make udev'.  That will copy the file into place and restart the udev
+subsystem.
 
 RUNNING IT:
 
 You are going to need read/write access to the mesage board device in order to
 use dcled.  This means you can either run dcled as root, suid the exe, or
-figure out how to set the device permissions under hotplug.  Personally, I run
-it as root.  If you choose to run it that way too, do try not to hurt anything.
-You've been warned.
+figure out how to set the device permissions under hotplug if the method
+suggested by the installation instructions didn't work for you.  If you choose
+to run it as root, do try not to hurt anything.  You've been warned.
 
 Usage- ./dcled [opts] [files]
 
         --brightness  -b   How bright, 0-2
         --clock       -c   Show the time
         --clock24h    -C   Show the 24h time
+        --bcdclock    -B   Show the time in binary
         --debug       -d   Mostly useless
         --echo        -e   Send copy to stdout
         --help        -h   Show this message
@@ -89,6 +98,7 @@ Available preamble graphics:
          5 - clock      - Shows the time
          6 - spiral     - Draws a spiral
          7 - fire       - A nice warm hearth
+         8 - bcdclock   - Shows the time in binary
 
 
 I set up dcled so that it works like cat.  If you run dcled with a list of
@@ -130,6 +140,29 @@ Here is how I use it to monitor my game server syslog file:
 
 tail -f syslog | dcled -e -p static
 
+
+WHAT IS UP WITH BCDCLOCK?
+
+A couple of the guys at work have these LED desk clocks that show the time in a
+form of binary notation called 'BCD'.  That stands for 'binary coded decimal'.
+The clock is showing the time like normal- 2:25:29 for twenty nine seconds
+after two twentyfive for example- but instead of printing it like normal, each
+digit is printed as a column of binary bits.  The 1 bit is at the bottom of the
+screen, with 2, 4, and then 8 on top of it.  Here is an example-
+
+.....................
+.....................
+.....................
+.................O...
+...........O.........
+.....O...O.....O.....
+...........O.....O...
+   0 2   2 5   2 9
+
+Having a BCD clock on your desk is pretty geeky... but I think having a USB
+programmable one that can scroll messages too is even better!
+
+
 WHAT IS UP WITH MOVING TO LIBHID?
 
 I got a message from Sam Dineley about a problem he was having with dcled under
@@ -163,13 +196,16 @@ I took the font data from pictures of the X11 "5x7" font.  Its a long story.
 
 Additional contributions made by:
 
-  * Sam Dineley     - bug reports
-  * Andy Scheller   - clock code, redrew the 'g', great feedback
-  * Michael Wensley - application of libhid clue stick
+  * Sam Dineley     - Bug reports
+  * Andy Scheller   - Clock code, redrew the 'g', great feedback
+  * Michael Wensley - Application of libhid clue stick
   * James Bruce     - First to get it to compile under Mac OSX.
   * Glen Smith      - Wrote the spiral and fire animations.
+  * Raymond         - Initial udev rules file
+  * Thomas Ilnseher - Bug reports
 
 If you want to contribute to dcled, send me your code diffs!  Be sure to
-specifiy if you want me to include your email address in the credits.
+specifiy if you DONT want me to include your name or email address in the
+credits.
 
 -jsj
