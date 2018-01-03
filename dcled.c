@@ -9,6 +9,7 @@
 /* dcled contains contributions from -
  * Andy Scheller 
  * Michael Wensley
+ * Glen Smith
  */
 
 #include <fcntl.h>
@@ -59,18 +60,40 @@ struct ledscreen {
 	ledfont *font;
 };
 
+struct preamble { 
+	const char *name;
+	const char *description;
+	const char *author;
+};
+
+struct preamble preambles[] = {
+	{ "none"    ,"The default","Jeff Jahr" },
+	{ "dots"    ,"A string of random dots","Jeff Jahr" },
+	{ "static"  ,"Warms up like an old TV","Jeff Jahr" },
+	{ "squiggle","A squiggly line","Jeff Jahr" },
+	{ "clock24" ,"Shows the 24 hour time", "Andy Scheller"},
+	{ "clock"   ,"Shows the time", "Andy Scheller" },
+	{ "spiral"  ,"Draws a spiral", "Glen Smith" },
+	{ "fire"    ,"A nice warm hearth", "Glen Smith" },
+	{ NULL,NULL,NULL }
+};
+
+
 void clearscreen(int mode,struct ledscreen *disp);
 void scroll(int dir, struct ledscreen *disp);
+void scrollmsg(struct ledscreen *disp, char* buf);
 void scrollrndfade(struct ledscreen *disp, int isend, int width);
 void scrollpreamble(int isend, struct ledscreen *disp);
 void staticwarmup(struct ledscreen *disp, int isend, int width);
 void scrollsquiggle(struct ledscreen *disp, int isend, int width);
 void printtime(struct ledscreen *disp,int mode);
+void spiral(struct ledscreen *disp);
+void fire(struct ledscreen *disp, int isend);
 
 int debug = 0;
 int echo = 0;
 int nodev = 0;
-char version[] = "1.5";
+char version[] = "1.6";
 
 /* 
   Copy a font definition into a character pointer.  In this application, fonts
@@ -687,6 +710,12 @@ void scrollpreamble(int isend, struct ledscreen *disp) {
 	int miltime=0;
 
 	switch (disp->preamble) {
+		case 7: 
+			fire(disp,isend);
+			return;
+		case 6: 
+			spiral(disp);
+			return;
 		case 5: 
 			if (!isend) {
 				clockmode(disp,2,0);
@@ -808,11 +837,103 @@ void scrollsquiggle(struct ledscreen *disp, int isend, int width) {
 	usleep(disp->scrolldelay);
 }
 
+/* its a spiral. Contributed by Glen Smith. */
+void spiral(struct ledscreen *disp) {
+
+	int offset,count,state,x,y;
+
+	clearscreen(0, disp);
+
+	offset=0;
+
+	state=1;
+
+	while(count<2) {
+		while(offset<4) {
+			for (x=0;x<(LEDSX-offset);x++) {
+				disp->led[x][y+offset] = state;
+				send_screen(disp);
+				usleep(100);
+			}
+	
+			for (y=0;y<(LEDSY-offset);y++) {
+				disp->led[(LEDSX-1)-offset][y] = state;
+				send_screen(disp);
+				usleep(100);
+			}
+			
+			for (x=(LEDSX-1-offset);x>=0;x--) {
+				disp->led[x][(LEDSY-1)-offset] = state;
+				send_screen(disp);
+				usleep(100);
+			}
+	
+			for (y=(LEDSY-1-offset);y>=(1+offset);y--) {
+				disp->led[x+1+offset][y] = state;
+				send_screen(disp);
+				usleep(100);
+			}
+			y=0;
+			x=0;
+		offset++;
+		}
+	offset=0;
+	count++;
+	state=0;
+	}
+	
+}
+
+/* Its a fire.  Contributed by Glen Smith */
+/* Made to fade in and out for a preamble by Jeff Jahr */
+void fire(struct ledscreen *disp, int isend) {
+
+	int count, x, y, origbright, height;
+	float scale,burnrate;
+
+	origbright = disp->brightness;
+
+	if (isend) {
+		scale = 1.0;
+	} else { 
+		scale = 0.1;
+	}
+
+	while (scale <= 1.0 && scale >= 0) {
+		count=0;
+		while(count<4) {
+			clearscreen(0, disp);
+			for (x=0;x<LEDSX;x++) {
+				height = scale * (rand()/(((double)RAND_MAX + 1) / LEDSY));
+				for (y=LEDSY-1;y>=(LEDSY-height);y--) {	
+					disp->led[x][y] = 1;
+				}
+			}
+			disp->brightness = rand()/(((double)RAND_MAX + 1) / 2);
+			send_screen(disp);
+			usleep(disp->scrolldelay / 10);
+			count++;
+		}
+		if (scale>0.9) {
+			burnrate = 0.005 * ((isend)?-1:1);
+		} else {
+			burnrate = 0.06 * ((isend)?-1:1);
+		}
+		scale = scale + burnrate;
+	}
+
+	disp->brightness = origbright;
+	clearscreen(0, disp);
+}
 
 /* Runs a bunch of test patterns.  */
 void fancytest(struct ledscreen *disp) {
-	int count, tp, b;
-	for (count=0;count<3;count++){
+
+	int count, tp, b, preamble;
+	char msg[8192];
+
+
+	for (count=0;count<1;count++){
 		for (tp=1;tp<=MAXTESTPAT;tp++) {
 			testpatern(0,disp);
 			testpatern(tp,disp);
@@ -824,6 +945,28 @@ void fancytest(struct ledscreen *disp) {
 		}
 	}
 	testpatern(0,disp);
+
+	/* now demo all of the preambles. */
+	preamble = 1;
+	disp->scrolldelay = 10000;
+	while ( preambles[preamble].name != NULL) {
+		snprintf(msg,8192,"%s - %-10s <%s>",
+			preambles[preamble].name,
+			preambles[preamble].description,
+			preambles[preamble].author
+		);
+
+		disp->preamble = preamble;
+		scrollpreamble(0,disp);
+		scrollmsg(disp,msg);
+		scrollpreamble(1,disp);
+		preamble++;
+	}
+	disp->preamble = 0;
+	disp->scrolldelay = 10000;
+	disp->brightness = 0;
+	sprintf(msg,"*** dcled %s Copyright 2009 Jeff Jahr <malakais@pacbell.net> ***     ",version);
+	scrollmsg(disp,msg);
 }
 
 /* scroll a character onto the display.  Not all directions are implemented
@@ -937,22 +1080,35 @@ int main (int argc, char **argv) {
 		if (getoptc == -1) break;
 
 		switch (getoptc) {
+			default:
 			case 'h':
 				/* bah getopt sucks.  Why do i have to format this?*/
 				/* maybe i just dont know the right way...*/
-				fprintf(stdout,"Usage- %s [opts] [files]\n",argv[0]);
-				fprintf(stdout,"\t--brightness,-b - how bright, 0-2\n");
-				fprintf(stdout,"\t--clock,-c      - Show the time\n");
-				fprintf(stdout,"\t--clock24h,-C   - Show the 24h time\n");
-				fprintf(stdout,"\t--debug,-d      - mostly useless\n");
-				fprintf(stdout,"\t--echo,-e       - send copy to stdout\n");
-				fprintf(stdout,"\t--help,-h       - duh\n");
-				fprintf(stdout,"\t--message,-m    - a single line to scroll\n");
-				fprintf(stdout,"\t--nodev,-n      - dont use the device\n");
-				fprintf(stdout,"\t--preamble,-p   - send a graphic before the text.\n");
-				fprintf(stdout,"\t--repeat,-r     - keep scrolling forever\n");
-				fprintf(stdout,"\t--speed,-s      - ms to delay\n");
-				fprintf(stdout,"\t--test,-t       - output a test pattern\n");
+				fprintf(stdout,"Usage- %s [opts] [files]\n\n",argv[0]);
+				fprintf(stdout,"\t--brightness  -b   How bright, 0-2\n");
+				fprintf(stdout,"\t--clock       -c   Show the time\n");
+				fprintf(stdout,"\t--clock24h    -C   Show the 24h time\n");
+				fprintf(stdout,"\t--debug       -d   Mostly useless\n");
+				fprintf(stdout,"\t--echo        -e   Send copy to stdout\n");
+				fprintf(stdout,"\t--help        -h   Show this message\n");
+				fprintf(stdout,"\t--message     -m   A single line message to scroll\n");
+				fprintf(stdout,"\t--nodev       -n   Don't use the device\n");
+				fprintf(stdout,"\t--preamble    -p   Send a graphic before the text.\n");
+				fprintf(stdout,"\t--repeat      -r   Keep scrolling forever\n");
+				fprintf(stdout,"\t--speed       -s   General delay in ms\n");
+				fprintf(stdout,"\t--test        -t   Output a test pattern\n");
+				fprintf(stdout,"\n");
+				fprintf(stdout,"Available preamble graphics:\n\n");
+				preamble = 1;
+				while ( preambles[preamble].name != NULL) {
+					fprintf(stdout,"\t%2d - %-10s - %s\n",
+						preamble,
+						preambles[preamble].name,
+						preambles[preamble].description
+					);
+					preamble++;
+				}
+				fprintf(stdout,"\n");
 				exit(0);
 				break;
 			case 'b':
@@ -976,6 +1132,20 @@ int main (int argc, char **argv) {
 			case 'p':
 				if (optarg != NULL) {
 					preamble = atoi(optarg);
+					if (preamble <= 0 ) {	
+						preamble = 0;
+						/* look for a match by name */
+						while ( preambles[preamble].name != NULL) {
+							if (!strcmp(optarg,preambles[preamble].name)) {
+								break;
+							}
+							preamble++;
+						}
+						if(preambles[preamble].name == NULL ) {
+							fprintf(stdout,"Unknown preamble.  Try -h for the list. \n");
+							preamble=0;
+						}
+					}
 				}
 				break;
 			case 'm':
@@ -1004,8 +1174,6 @@ int main (int argc, char **argv) {
 			case 'C':
 				clock = 1;
 				break;
-			default:
-				abort();
 		}
 	}
 
@@ -1042,6 +1210,7 @@ int main (int argc, char **argv) {
 
 	if(clock) {
 		clockmode(disp,clock,repeat);
+		exit(0);
 	}
 
 	/* if there is a message, print it and dont bother with files. */

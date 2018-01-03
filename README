@@ -53,7 +53,8 @@ in order to build dcled.  If you are running debian or ubuntu, try running
 'apt-get install libhid-dev' to get the right files installed.
 
 Type make.  That should build an executable called 'dcled'.  If that doesnt
-work, try compling it by hand.  There is an install option in the makefile that will copy the executable into /usr/local/bin.
+work, try compling it by hand.  There is an install option in the makefile that
+will copy the executable into /usr/local/bin.
 
 
 RUNNING IT:
@@ -65,18 +66,30 @@ it as root.  If you choose to run it that way too, do try not to hurt anything.
 You've been warned.
 
 Usage- ./dcled [opts] [files]
-        --brightness,-b - how bright, 0-2
-        --clock,-c      - Show the time
-        --clock24h,-C   - Show the 24h time
-        --debug,-d      - mostly useless
-        --echo,-e       - send copy to stdout
-        --help,-h       - duh
-        --message,-m    - a single line to scroll
-        --nodev,-n      - dont use the device
-        --preamble,-p   - send a graphic before the text.
-        --repeat,-r     - keep scrolling forever
-        --speed,-s      - ms to delay
-        --test,-t       - output a test pattern
+
+        --brightness  -b   How bright, 0-2
+        --clock       -c   Show the time
+        --clock24h    -C   Show the 24h time
+        --debug       -d   Mostly useless
+        --echo        -e   Send copy to stdout
+        --help        -h   Show this message
+        --message     -m   A single line message to scroll
+        --nodev       -n   Don't use the device
+        --preamble    -p   Send a graphic before the text.
+        --repeat      -r   Keep scrolling forever
+        --speed       -s   General delay in ms
+        --test        -t   Output a test pattern
+
+Available preamble graphics:
+
+         1 - dots       - A string of random dots
+         2 - static     - Warms up like an old TV
+         3 - squiggle   - A squiggly line
+         4 - clock24    - Shows the 24 hour time
+         5 - clock      - Shows the time
+         6 - spiral     - Draws a spiral
+         7 - fire       - A nice warm hearth
+
 
 I set up dcled so that it works like cat.  If you run dcled with a list of
 files, it will cat each of those files to the message board.  If you dont name
@@ -103,6 +116,19 @@ dcled f1 f2
 If you want to have dcled run as a clock all the time, try adding using the clock and repeat options.
 
 dcled --clock --repeat
+
+As of dcled 1.6, you can call the preamble type either by number or by name:
+
+dcled -p static -m "Hello World"
+dcled -p 2 -m "Hello World"
+
+To see a demo of all the preamble types, run the test pattern:
+
+dcled --test
+
+Here is how I use it to monitor my game server syslog file:
+
+tail -f syslog | dcled -e -p static
 
 WHAT IS UP WITH MOVING TO LIBHID?
 
@@ -141,5 +167,9 @@ Additional contributions made by:
   * Andy Scheller   - clock code, redrew the 'g', great feedback
   * Michael Wensley - application of libhid clue stick
   * James Bruce     - First to get it to compile under Mac OSX.
+  * Glen Smith      - Wrote the spiral and fire animations.
+
+If you want to contribute to dcled, send me your code diffs!  Be sure to
+specifiy if you want me to include your email address in the credits.
 
 -jsj
