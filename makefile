@@ -7,15 +7,17 @@ DISTFILES= dcled.c makefile README README-MACOS 40-dcled.rules
 # INSTALLDIR is where the binaries get installed
 INSTALLDIR=/usr/local/bin
 FONTDIR="/usr/local/share/dcled"
-DCLEDVERSION="2.0"
+DCLEDVERSION="2.1"
 DIST=dcled-$(DCLEDVERSION)
+LIBUSB_CFLAGS=-I/usr/include/libusb-1.0
+LIBUSB_LIBS=-lusb-1.0
 
 # If gcc isnt your compiler, change it here.
  
 CC=gcc
 
-CFLAGS= -g -O3 -DFONTDIR='$(FONTDIR)' -DDCLEDVERSION='$(DCLEDVERSION)'
-LDFLAGS= -g -lm -lhid
+CFLAGS= -g -O3 -DFONTDIR='$(FONTDIR)' -DDCLEDVERSION='$(DCLEDVERSION)' ${LIBUSB_CFLAGS}
+LDFLAGS= -g -lm ${LIBUSB_LIBS}
  
 # You probaby dont need to change anything below this line...
  
@@ -28,6 +30,7 @@ OFILES= dcled.o
 all:	dcled
 
 dcled: dcled.o
+	$(CC) dcled.o -o dcled $(LDFLAGS)
 
 # rebuild the ctags
 ctags: $(HFILES) $(CFILES)

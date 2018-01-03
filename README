@@ -24,7 +24,7 @@ dcled - userland driver for Dream Cheeky (Dream Link?) USB LED Message Board
 Copyright 2009,2010,2011 Jeff Jahr <malakais@pacbell.net> 
 
 This is free software.  G'head, use it all you want.  Because of the use of
-libhid, however, this might now be considered GPL licensed.  I kind of like the
+libusb, however, this might now be considered GPL licensed.  I kind of like the
 Artistic License myself.  Anyway, if you are planning to incorporate this code
 into your product or are otherwised concerned about the licensing, have your
 people contact my people and we'll work it out.
@@ -47,9 +47,10 @@ id.
 
 BUILDING IT:
 
-As of dcled version 1.4, you are going to need a copy of the libhid-dev files
-in order to build dcled.  If you are running debian or ubuntu, try running
-'apt-get install libhid-dev' to get the right files installed.
+As of dcled version 2.1, you no longer need libhid, but you are going to need a
+copy of the libusb-1.0 dev files in order to build dcled.  If you are running
+debian or ubuntu, try running 'apt-get install libusb-1.0-0-dev' to get the
+right files installed.
 
 Type 'make'.  That should build an executable called 'dcled'.  If that doesnt
 work, try compling it by hand.  There is an install option in the makefile.  If
@@ -191,7 +192,7 @@ The default location for font files is /usr/local/share/dcled.  Put your .dlf
 file into that location and dcled will try to load it.
 
 
-WHAT IS UP WITH MOVING TO LIBHID?
+WHAT IS UP WITH MOVING TO LIBHID in 1.4?
 
 I got a message from Sam Dineley about a problem he was having with dcled under
 kernel 2.6.24. It looks like there is a problem with the linux usbhid driver
@@ -213,6 +214,19 @@ California and we are in the middle of a drought, so there it sat.
 In the mean time, Michael Wensley was smart enough to make dcled work with
 libhid, and kind enough to show me how he did it.  It seems to work without
 error on my systems, so there we go!  Problem solved.
+
+
+WHAT IS UP WITH MOVING FROM LIBHID TO LIBUSB-1.0 in 2.1?
+
+Libhid served us well for a long time.  However, the Debian/Ubuntu maintainers
+felt the libhid package was buggy, unsupported, and not widely used, so they
+eventually dropped it from the distributions.  Not a big deal, one could easily
+install libhid from source and dcled could keep using it, except for the
+following: libhid is unsupported, not widely used, building it is a pain, and I
+keep getting emailed about how to install it!  Problem no longer solved.  I
+took a few hours to read up on the libusb-1.0 API and was able to have dcled
+call libusb-1.0 directly instead of through libhid, so now the libhid
+requirement is dropped.
 
 
 CREDITS:

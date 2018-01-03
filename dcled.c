@@ -25,9 +25,9 @@
 #include <string.h>
 #include <getopt.h>
 #include <time.h>
-#include <hid.h>
 #include <sys/select.h>
 #include <glob.h>
+#include <libusb.h>
 
 #define VENDOR 0x1d34
 #define PRODUCT 0x0013
@@ -75,7 +75,7 @@ struct ledfontlist {
 
 /* This is a basic definition of the led display. 0,0 is the upper left. */
 struct ledscreen {
-	HIDInterface *hid;
+	libusb_device_handle *handle;
 	unsigned char path_in_len;
 	int *path_in;
 	int brightness;
@@ -160,6 +160,7 @@ void send_screen (struct ledscreen *disp) {
 	char bigpkt[sizeof(struct ledpkt) * 4];
 	struct ledpkt pkt;
 	int row, col, bytep, bitp;
+	static const int HID_SET_REPORT = 0x09;
 
 	if(debug) print_screen(disp);
 	time(&(disp->lastupdate));
@@ -196,7 +197,14 @@ void send_screen (struct ledscreen *disp) {
 		const unsigned int chunk_size = sizeof(bigpkt) / chunk_count;
 		int chunk;
 		for (chunk=0;chunk<chunk_count;chunk++) {
-			hid_set_output_report(disp->hid, disp->path_in, disp->path_in_len, bigpkt+(chunk*chunk_size), chunk_size);
+			libusb_control_transfer(
+				disp->handle,
+				(LIBUSB_RECIPIENT_INTERFACE | LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_ENDPOINT_OUT),
+				HID_SET_REPORT,
+				0, 0,
+				bigpkt+(chunk*chunk_size), chunk_size,
+				1000
+			);
 		}
 	}
 
@@ -226,53 +234,96 @@ void clearscreen(int mode,struct ledscreen *disp) {
 	return;
 }
 
-int open_hiddev(struct ledscreen *disp) {
+int open_usbdev(struct ledscreen *disp) {
 
-	/* Oh my oh my. Need to find the output report descriptor for the device.
-	 * Using the output of 'lsusb -d 1d34:0013 -vvv', one can determin that:
-	 *
-	 * The report descriptor usage page is 65280. The usage we want is #1.
-	 * Why?  Dunno!  Seems to work though.  That usage isnt rooted under any
-	 * items so the path length is 1.
-	 *
-	 * So to make an input path that works with libhid:
-	 *
-	 * ((65280 << 16) + 1) == 0xff000001 */
+	libusb_device **list;
+	libusb_device *device;
+	libusb_device *found = NULL;
+	libusb_device_handle *handle;
+	struct libusb_device_descriptor desc;
 
-	unsigned char const pathlen = 1;
-	const int PATH_IN[] = { 0xff000001 };
-	HIDInterface* hid = NULL;
-	hid_return ret;
+	ssize_t cnt;
+	ssize_t i = 0;
+	int err = 0;
 
-	/* go search for a matching device.  I'm not clear on how this works if
-	 * there is more than one message board installed.  -jsj */
-	HIDInterfaceMatcher leds = { VENDOR, PRODUCT, NULL, NULL, 0 };
-	if ((ret = hid_init()) != HID_RET_SUCCESS) { 
-		fprintf(stderr,"hid_init failed with return code %d\n",ret);
-		return EXIT_FAILURE; 
-	}
-	hid = hid_new_HIDInterface();
-	if (hid == NULL) { 
-		fprintf(stderr,"hid_new_HIDInterface() failed.\n",ret);
-		return EXIT_FAILURE; 
-	}
-	/* This call will forceably remove control of the device from the
-	 * kernel hid driver.  The fourth argument is the number of times the
-	 * call should try to close the device and snag it for our own devious
-	 * purposes before giving up.  It is what was used in the libhid
-	 * example code. */
-	if ((ret=hid_force_open(hid, 0, &leds, 3)) != HID_RET_SUCCESS) { 
-		fprintf(stderr,"hid_force_open failed with return code %d\n",ret);
-		return EXIT_FAILURE;
+	if (libusb_init(NULL)) {
+		return(EXIT_FAILURE);
 	}
 
-	disp->hid = hid;
-	disp->path_in_len = pathlen;
-	disp->path_in = (int*)malloc(pathlen * sizeof(int));
-	memcpy(disp->path_in,PATH_IN,pathlen * sizeof(int));
+	if(debug) {
+		libusb_set_debug(NULL,3);
+	}	
+
+	/* Fetch a list of all the available devices. */
+	cnt = libusb_get_device_list(NULL, &list);
+	if (cnt < 0) {
+		return(EXIT_FAILURE);
+	}
+
+	/* walk the list, looking for our friend. */
+	for (i = 0; i < cnt; i++) {
+		device = list[i];
+		if(libusb_get_device_descriptor(device, &desc)) {
+			return(EXIT_FAILURE);
+		}
+		/* When its time to add support choosing between multiple boards, this
+		 * is where the logic would go.*/
+		if ((desc.idVendor == VENDOR) && 
+			(desc.idProduct == PRODUCT)
+			) {
+			found = device;
+			break;
+		}
+	}
+
+	if (!found) {
+		/* couldnt find the board. */
+		libusb_free_device_list(list, 1);
+		return(EXIT_FAILURE);
+	}
+
+	if(libusb_open(found, &handle)) {
+		/* couldnt get a handle on it... */
+		libusb_free_device_list(list, 1);
+		return(EXIT_FAILURE);
+	}
+
+	/* all done with that list of devices.. */
+	libusb_free_device_list(list, 1);
+
+	disp->handle = handle;
+
+	/* if the kernel hid driver is installed, get rid of it.*/
+	if(libusb_kernel_driver_active(handle,0)) {
+		libusb_detach_kernel_driver(handle,0);
+	}
+
+	/* Go on, take the money and run... */
+	if(libusb_claim_interface(handle,0)) {
+		return(EXIT_FAILURE);
+	}
+
 	return(EXIT_SUCCESS);
 
 }
+
+/* can call this even if no device was ever set up. */
+void close_usbdev(struct ledscreen *disp) {
+	if(!disp){
+		return;
+	}
+	if(!(disp->handle)) {
+		return;
+	}
+
+	libusb_release_interface(disp->handle,0);
+	libusb_close(disp->handle);
+	if(disp) {
+		disp->handle = NULL;
+	}
+	libusb_exit(NULL);
+}
+
 
 
 /* shift the disp one pixel in the given direction.*/
@@ -986,13 +1037,7 @@ struct ledfont *allocfont(void) {
 
 /* called via atexit. */
 void bye(void) {
-/* if I wanted to clean it up right, this is what I'd do.*/
-/*	if(hid) {
-		hid_close(hid);
-		hid_delete_HIDInterface(&hid);
-		hid_cleanup();
-	}
-*/
+	/* if I wanted to clean it up right, this is where I'd do it.*/
 }
 
 struct ledfontlist *initfonts(char *dirname) {
@@ -1384,7 +1429,7 @@ int main (int argc, char **argv) {
 	srand(getpid());
 
 	if (!nodev) {
-		if(open_hiddev(disp)==EXIT_FAILURE) {
+		if(open_usbdev(disp)==EXIT_FAILURE) {
 			fprintf(stderr,"Couldn't find the device.  Was expecting to find a readable\ndevice that matched vendor %0x and product %0x.  Is the\ndevice plugged in? Do you have permission?\n",VENDOR,PRODUCT);
 			return(EXIT_FAILURE);
 		}
@@ -1401,11 +1446,13 @@ int main (int argc, char **argv) {
 		fprintf(stdout,"font directory is %s\n",FONTDIR);
 		disp->scrolldelay = 100000;
 		fancytest(disp,fontlist);
+		close_usbdev(disp);
 		exit(0);
 	}
 
 	if(clock) {
 		clockmode(disp,clock,repeat);
+		close_usbdev(disp);
 		exit(0);
 	}
 
@@ -1420,6 +1467,7 @@ int main (int argc, char **argv) {
 			}
 			scrollpreamble(1,disp);
 		} while (repeat);
+		close_usbdev(disp);
 		exit(0);
 	}
 
@@ -1432,6 +1480,7 @@ int main (int argc, char **argv) {
 					fprintf(stderr,"Couldnt open %s: %s\n", 
 						argv[fileidx], strerror(errno)
 					);
+					close_usbdev(disp);
 					exit(0);
 				}
 				scrollpreamble(0,disp);
@@ -1441,6 +1490,7 @@ int main (int argc, char **argv) {
 				fileidx++;
 			}
 		} while (repeat);
+		close_usbdev(disp);
 		exit(0);
 	}
 
@@ -1448,6 +1498,7 @@ int main (int argc, char **argv) {
 	scrollpreamble(0,disp);
 	scrollfile(disp,stdin);
 	scrollpreamble(1,disp);
+	close_usbdev(disp);
 
 }
 
