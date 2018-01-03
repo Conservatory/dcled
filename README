@@ -21,7 +21,7 @@
 
 dcled - userland driver for Dream Cheeky (Dream Link?) USB LED Message Board
 
-Copyright 2009,2010,2011 Jeff Jahr <malakais@pacbell.net> 
+Copyright 2009-2014 Jeff Jahr <malakai@jeffrika.com> 
 
 This is free software.  G'head, use it all you want.  Because of the use of
 libusb, however, this might now be considered GPL licensed.  I kind of like the
@@ -227,6 +227,22 @@ keep getting emailed about how to install it!  Problem no longer solved.  I
 took a few hours to read up on the libusb-1.0 API and was able to have dcled
 call libusb-1.0 directly instead of through libhid, so now the libhid
 requirement is dropped.
+
+WHAT IS UP WITH TACHOMETER MODE?
+
+I wanted to use the message board to continuously monitor some stats on my
+computer.  I thought the easiest and most scriptable way to do this would be to
+have dcled read its input for a number from 0 to 100 (one nubmer per line), and
+'graph' the value.  I included cpuload in the distribution as an example of how
+to feed dcled some data to be monitored.  To use dcled to monitor the CPU
+utilization on a Linux box, pipe the output of cpuload to dcled in tach mode
+like this:
+
+./cpuload 0.2 | ./dcled -T tach
+
+You can feed the dcled tach gauge with any program you can think of, and dcled
+will update the tach gauge every time that it reads a new value, or four times
+per second if there is no data waiting to be read.
 
 
 CREDITS:
