@@ -1,0 +1,93 @@
+##############################################################################
+#                                                                            #
+#   This is the Conservatory archive of Jeff Jahr's 'dcled', an open source  #
+#   program for driving the Dream Cheeky USB message board.  The upstream    #
+#   home page is https://www.last-outpost.com/~malakai/dcled/.               #
+#                                                                            #
+#   The Conservatory (https://conservatory.github.io/) is a place where      #
+#   free software that has no other public version-controlled home on the    #
+#   Internet is made available in a git repository.  For dcled, we did the   #
+#   usual treatment: each upstream release package is committed as one git   #
+#   revision, starting from dcled-1.0.  Note that for some reason dcled-1.3  #
+#   was absent from upstream's archive (though the 404 error page for it     #
+#   rocks -- try https://www.last-outpost.com/~malakai/dcled/dcled-1.3.tgz   #  
+#   to see for yourself).                                                    #
+#                                                                            #
+#   This README is the only file we've changed from upstream, and the only   #
+#   change we made was to add this note.  Below is the original content of   #
+#   the README file.                                                         #
+#                                                                            #
+##############################################################################
+
+dcled - userland driver for Dream Cheeky (Dream Link?) USB LED Message Board
+
+Copyright 2009 Jeff Jahr <malakais@pacbell.net> 
+
+This is free software.  G'head, use it all you want.  
+
+Version 1.0 took ~12 hours to write, and was my first foray into usb device
+programming.  This is probably not a real good example of how to do ANYTHING.
+Sun Jan  4 00:18:41 PST 2009 -jsj
+
+Dcled runs on linx.  To use it, you need to have the usb hiddev loaded- on my
+system that seems to be the module named 'usbhid', and it is loaded by default.
+When you plug in the message board, the system ought to see it and create an
+entry in /dev/usb/hiddev* for it.  You can check if the device is loaded
+correctly with this command:
+
+lsusb -d 1d34:0013 -v
+
+That out to output a whole lot of stuff that you probably dont care about-
+unless it outputs nothing.  If it outputs nothing, then you have a problem with
+your usb. Or maybe you have message board with a different vendor and product
+id.
+
+BUILDING IT:
+
+Type make.  That should make an executable called 'dcled'.  If that doesnt
+work, try compling it by hand.
+
+RUNNING IT:
+
+Usage- ./dcled [opts] [files]
+        --brightness,-b - how bright, 0-2
+        --debug,-d      - mostly useless
+        --echo,-e       - send copy to stdout
+        --help,-h       - duh
+        --message,-m    - a single line to scroll
+        --outdev,-o     - specifiy the exact path to the hiddev
+        --repeat,-r     - keep scrolling forever
+        --speed,-s      - ms to delay
+        --test,-t       - output a test pattern
+
+I set it up so that it works like cat.  If you run dcled with a list of files,
+it will cat each of those files to the message board.  If you dont name any
+files at all, dcled reads from stdin, so that you can use it as a pipe.  There
+is also the --message="" option in case you want to send a single line to it.
+
+EXAMPLES:
+
+Run a test pattern:
+dcled -t  
+
+Hello World:
+dcled -m 'Hello World!'
+
+Hello World part 2:
+echo 'Hello World!' | dcled
+
+Hell World part 3:
+echo Hello >f1
+echo Hello >f2
+dcled f1 f2
+
+
+CREDITS:
+
+I used the docs written by Alvin Wong of Dream Link to get the device protocol
+right.  Way to go with releasing hardware specs!  Awesome!
+
+I took the font data from pictures of the X11 "5x7" font.  Its a long story.
+
+
+-jsj
