@@ -93,7 +93,7 @@ void fire(struct ledscreen *disp, int isend);
 int debug = 0;
 int echo = 0;
 int nodev = 0;
-char version[] = "1.6";
+char version[] = "1.7";
 
 /* 
   Copy a font definition into a character pointer.  In this application, fonts
@@ -840,7 +840,7 @@ void scrollsquiggle(struct ledscreen *disp, int isend, int width) {
 /* its a spiral. Contributed by Glen Smith. */
 void spiral(struct ledscreen *disp) {
 
-	int offset,count,state,x,y;
+	int offset,count=0,state,x,y;
 
 	clearscreen(0, disp);
 
