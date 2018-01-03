@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <string.h>
 #include <getopt.h>
+#include <time.h>
 
 #define VENDOR 0x1d34
 #define PRODUCT 0x0013
@@ -40,18 +41,21 @@ struct ledscreen {
 	int brightness;
 	int scrolldelay;
 	int scrolldir;
+	int preamble;
+	time_t lastupdate;
 	int led[LEDSX][LEDSY];
 };
 
 void clearscreen(int mode,struct ledscreen *disp);
 void scroll(int dir, struct ledscreen *disp);
 void scrollrndfade(struct ledscreen *disp, int isend, int width);
-void scrollpreamble(int which, int isend, struct ledscreen *disp);
+void scrollpreamble(int isend, struct ledscreen *disp);
 void staticwarmup(struct ledscreen *disp, int isend, int width);
+void scrollsquiggle(struct ledscreen *disp, int isend, int width);
 
 int debug = 0;
 int echo = 0;
-char version[] = "1.0";
+char version[] = "1.2";
 
 /* 
   Copy a font definition into a character pointer.  In this application, fonts
@@ -402,6 +406,7 @@ void send_screen (struct ledscreen *sc) {
 	int row, col, bytep, bitp;
 
 	if(debug) print_screen(sc);
+	time(&(sc->lastupdate));
 	
 	for(row=0;row<LEDSY;row+=2) {
 		pkt.brightness = sc->brightness;
@@ -599,9 +604,12 @@ void scrolltest(struct ledscreen *disp) {
 }
 
 /* call the right graphic header depending on style and direction. */
-void scrollpreamble(int which, int isend, struct ledscreen *disp) {
+void scrollpreamble(int isend, struct ledscreen *disp) {
 
-	switch (which) {
+	switch (disp->preamble) {
+		case 3: 
+			scrollsquiggle(disp,isend,5*LEDSX);
+			return;
 		case 2: 
 			staticwarmup(disp,isend,5*LEDSX);
 			return;
@@ -685,6 +693,28 @@ void scrollrndfade(struct ledscreen *disp, int isend, int width) {
 	}
 }
 
+void scrollsquiggle(struct ledscreen *disp, int isend, int width) {
+
+	int count;
+	float yf,diff;
+	int y;
+
+	scroll(3,disp);
+	yf = y = LEDSY/2;
+	for(count=0;count<width;count++){
+		diff = (2.0*((float)rand()/(float)(RAND_MAX))-1.0);
+		yf+=diff;
+		if(yf > LEDSY-1 || yf < 0.0) {
+			yf-=1.5*diff;
+		}
+		y = yf;
+		disp->led[LEDSX-1][y] = 1;
+		scroll(3,disp);
+		send_screen(disp);
+	}
+	scroll(3,disp);
+}
+
 
 /* Runs a bunch of test patterns.  */
 void fancytest(struct ledscreen *disp) {
@@ -745,8 +775,14 @@ void scrollfile(struct ledscreen *disp, char *font, FILE* cin) {
 	
 	char buf[8192];
 	char *nl;
+	time_t now;
 	
 	while(fgets(buf,8192,cin)) {
+		time(&now);
+		if(disp->preamble!= 0 &&
+			(now - disp->lastupdate) > 10) {
+			scrollpreamble(0,disp);
+		}
 		scrollmsg(disp,font,buf);
 	}
 
@@ -888,6 +924,7 @@ int main (int argc, char **argv) {
 	disp->brightness = brightness;
 	disp->scrolldelay = speed;
 	disp->scrolldir = 3;
+	disp->preamble = preamble;
 
 	/* clears the display */
 	clearscreen(0,disp);
@@ -905,9 +942,9 @@ int main (int argc, char **argv) {
 	/* if there is a message, print it and dont bother with files. */
 	if(msg != NULL) {
 		do {
-			scrollpreamble(preamble,0,disp);
+			scrollpreamble(0,disp);
 			scrollmsg(disp,font,msg);
-			scrollpreamble(preamble,1,disp);
+			scrollpreamble(1,disp);
 		} while (repeat);
 		exit(0);
 	}
@@ -923,9 +960,9 @@ int main (int argc, char **argv) {
 					);
 					exit(0);
 				}
-				scrollpreamble(preamble,0,disp);
+				scrollpreamble(0,disp);
 				scrollfile(disp,font,cin);
-				scrollpreamble(preamble,1,disp);
+				scrollpreamble(1,disp);
 				fclose(cin);
 				fileidx++;
 			}
@@ -934,8 +971,8 @@ int main (int argc, char **argv) {
 	}
 
 	/* read from stdin. */
-	scrollpreamble(preamble,0,disp);
+	scrollpreamble(0,disp);
 	scrollfile(disp,font,stdin);
-	scrollpreamble(preamble,1,disp);
+	scrollpreamble(1,disp);
 
 }
