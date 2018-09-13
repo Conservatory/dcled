@@ -4,6 +4,15 @@
 #   program for driving the Dream Cheeky USB message board.  The upstream    #
 #   home page is https://www.last-outpost.com/~malakai/dcled/.               #
 #                                                                            #
+#   Jeff Jahr still maintains dcled.  (As far as we are currently aware,     #
+#   his own repository is not publicly accessible on the Net, which is why   #
+#   we created this one.)  He does not monitor this repository, but he said  #
+#   that anyone with a contribution to make should send him patches by       #
+#   email as described in his original README below, and he'll be happy to   #
+#   consider them for inclusion into dcled.  The Conservatory will try to    #
+#   watch for new upstream releases and incorporate them into the version    #
+#   control history here.                                                    #
+#                                                                            #
 #   The Conservatory (https://conservatory.github.io/) is a place where      #
 #   free software that has no other public version-controlled home on the    #
 #   Internet is made available in a git repository.  For dcled, we did the   #
